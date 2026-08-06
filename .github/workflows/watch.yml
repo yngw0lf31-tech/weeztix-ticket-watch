@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  actions: write   # nécessaire pour que le workflow puisse se couper tout seul
 
 concurrency:
   group: veille
@@ -21,16 +22,42 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # Le BCG Fest se termine le 6 septembre 2026 : au premier passage
+      # après le 06/09 23h59 (heure de Paris, = 21h59 UTC), la veille
+      # prévient une dernière fois puis se désactive définitivement.
+      - name: Coupure automatique après le BCG Fest
+        id: garde
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          if [[ "$(date -u +%Y-%m-%dT%H:%M)" > "2026-09-06T21:59" ]]; then
+            echo "BCG Fest terminé — la veille se coupe."
+            curl -s -m 15 \
+              -H "Title: Veille Weeztix terminee" \
+              -H "Tags: checkered_flag" \
+              -d "Le BCG Fest est fini : la veille cloud GitHub s'est coupée toute seule, comme prévu. (Pour la relancer un jour : gh workflow enable watch.yml dans le repo weeztix-ticket-watch.)" \
+              "https://ntfy.sh/${NTFY_TOPIC}" || true
+            gh api -X PUT "repos/${GITHUB_REPOSITORY}/actions/workflows/watch.yml/disable"
+            echo "active=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "active=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.garde.outputs.active == 'true'
 
       - uses: actions/setup-python@v5
+        if: steps.garde.outputs.active == 'true'
         with:
           python-version: "3.12"
           cache: pip
 
-      - run: pip install -q -r requirements.txt
+      - if: steps.garde.outputs.active == 'true'
+        run: pip install -q -r requirements.txt
 
       - name: Vérifier le billet
+        if: steps.garde.outputs.active == 'true'
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
         run: |
@@ -39,6 +66,7 @@ jobs:
           python watcher_cloud.py $EXTRA
 
       - name: Sauvegarder l'état
+        if: steps.garde.outputs.active == 'true'
         run: |
           if [ -n "$(git status --porcelain state.json)" ]; then
             git config user.name "veille-bot"
