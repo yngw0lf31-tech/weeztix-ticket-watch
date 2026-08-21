@@ -1,6 +1,6 @@
 {
- "errors": 3,
- "error_alerted": false,
+ "errors": 4,
+ "error_alerted": true,
  "status": "sold_out",
  "last_alert": 1787044707.6165743
 }
